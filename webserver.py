@@ -1,16 +1,14 @@
+import base64
+import datetime
 import pathlib
-import random
 import sqlite3
-import string
 import sys
-import tempfile
-import time
-import uuid
 
 import cv2
+import numpy as np
 import orjson
 import torch
-from aiohttp import web
+from aiohttp import ClientSession, web
 from torchvision import transforms
 from torchvision.models import resnet18
 
@@ -19,27 +17,33 @@ from server.ml_utils import load_model, resnet18
 
 cwd = pathlib.Path(__file__).parent.resolve()
 
+USER_ID = "james"
 
 if not sys.argv[1:]:
-    print(f"Usage: {sys.argv[0]} [MINERS]")
+    print(f"Usage: {sys.argv[0]} [MINER_ADDRESS]")
 
 
-MINER_ADDRESS = sys.argv[1:]
+MINER_ADDRESS = sys.argv[1]
+
+client_session = None
 
 
-prediction_database_file = cwd / "pending_predictions.sqlite"
-prediction_database_connection = sqlite3.connect(prediction_database_file.as_posix())
+async def get_client_session():
+    # NOTE: This is not thread-safe!
 
-prediction_database_connection.cursor().execute(
-    "create table if not exists prediction (plant integer, valid_upto integer, token text)"
-)
+    global client_session
+
+    if client_session is None:
+        client_session = ClientSession()
+
+    return client_session
 
 
 events_database_file = cwd / "events.sqlite"
 events_database_connection = sqlite3.connect(events_database_file.as_posix())
 
 events_database_connection.cursor().execute(
-    "create table if not exists events (plant integer, longitude float, lalitude float)"
+    "create table if not exists events (plant text, longitude float, lalitude float)"
 )
 
 
@@ -57,36 +61,6 @@ load_model(model, filename=model_file.as_posix(), use_gpu=use_gpu)
 
 
 routes = web.RouteTableDef()
-predictions = set()
-
-
-class Prediction:
-    MAX_TIME_VALID = 3600
-
-    def __init__(self, plant_id: str):
-        self.plant_id = plant_id
-        self.valid_upto = time.time() + Prediction.MAX_TIME_VALID
-
-        self.prediction_token = uuid.uuid4().hex
-
-
-def create_prediction(plant_id, *, until=3600):
-    prediction_token = uuid.uuid4().hex
-    valid_upto = int(time.time() + until) * 1000
-
-    prediction_database_connection.execute(
-        "insert into prediction values (?, ?, ?)",
-        (plant_id, prediction_token, valid_upto),
-    )
-    prediction_database_connection.commit()
-    return prediction_token
-
-
-def get_prediction(prediction_token: str):
-    return prediction_database_connection.execute(
-        "select * from prediction where token match ? and valid_upto > ?",
-        (prediction_token, int(time.time()) * 1000),
-    ).fetchone()
 
 
 def has_deployment_authorization(deployment_key=None):
@@ -105,29 +79,66 @@ def has_deployment_authorization(deployment_key=None):
     return inner
 
 
-@routes.get("/api")
-@has_deployment_authorization(f"psk {DEPLOYMENT_SERVER_PASS_KEY}")
-async def api(request: web.Request):
-    return web.Response(text="Hello, world")
+@routes.get("/events")
+@has_deployment_authorization(f"psk {DEPLOYMENT_SERVER_PASS_KEY}:admin")
+async def get_events(request: web.Request):
+    events_database_connection.execute("select * from events")
+    plants = events_database_connection.fetchall()
 
-
-@routes.post("/predict_from_image")
-@has_deployment_authorization(f"psk {DEPLOYMENT_SERVER_PASS_KEY}")
-async def predict_from_image(request: web.Request):
-    data = await request.read()
-
-    if not data:
-        raise web.HTTPBadRequest(reason="No data provided.")
-
-    tf = pathlib.Path(tempfile.gettempdir()) / (
-        "".join(random.choices(string.ascii_uppercase + string.digits, k=10)) + ".png"
+    return web.Response(
+        body=orjson.dumps(
+            {"plant_id": plant_id, "longitude": longitude, "latitude": latitude}
+            for (plant_id, longitude, latitude) in plants
+        )
     )
 
-    with open(tf.as_posix(), "wb") as f:
-        f.write(data)
 
-    img = cv2.imread(tf.as_posix())
+@routes.post("/events")
+@has_deployment_authorization(f"psk {DEPLOYMENT_SERVER_PASS_KEY}:admin")
+async def get_events(request: web.Request):
+    data = await request.json()
 
+    if not data or any(
+        field not in data for field in ["plant_id", "longitude", "latitude"]
+    ):
+        raise web.HTTPBadRequest(reason="Invalid data provided.")
+
+    events_database_connection.execute(
+        "insert into events values (?, ?, ?)",
+        (data["plant_id"], data["longitude"], data["latitude"]),
+    )
+    events_database_connection.commit()
+
+
+@routes.get("/fetch_chain")
+@has_deployment_authorization(f"psk {DEPLOYMENT_SERVER_PASS_KEY}")
+async def fetch_chain(request: web.Request):
+    session = await get_client_session()
+
+    async with session.get(f"http://{MINER_ADDRESS}/chain") as resp:
+        return web.Response(body=await resp.read(), status=resp.status)
+
+
+@routes.post("/register_prediction")
+@has_deployment_authorization(f"psk {DEPLOYMENT_SERVER_PASS_KEY}")
+async def register_prediction(request: web.Request):
+    response_data = await request.json()
+
+    if not response_data or any(field not in response_data for field in ["caught_at"]):
+        caught_at = response_data.get("caught_at")
+
+        if not caught_at or any(field not in caught_at for field in ["lat", "lon"]):
+            raise web.HTTPBadRequest(
+                reason="Invalid data provided: cannot decide where the plant was caught."
+            )
+
+        raise web.HTTPBadRequest(reason="Invalid data provided: cannot identify plant.")
+
+    caught_on = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    data = base64.b64decode(response_data.get("image"))
+
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         raise web.HTTPBadRequest(reason="Invalid image provided.")
 
@@ -146,41 +157,30 @@ async def predict_from_image(request: web.Request):
     predicted_class = torch.argmax(output, dim=1).item()
     predicted_species = species_mapping.get(str(predicted_class), "unknown")
 
-    tf.unlink()
+    args = {
+        "plant_id": predicted_class,
+        "client_id": USER_ID,
+        "caught_at": response_data["caught_at"],
+        "caught_on": caught_on,
+    }
 
-    prediction_token = create_prediction(predicted_class)
+    session = await get_client_session()
 
-    return web.Response(
-        body=orjson.dumps(
-            {
-                "identified_species": predicted_species,
-                "cls_index": predicted_class,
-                "token": prediction_token,
-            }
-        )
-    )
+    async with session.post(
+        f"http://{MINER_ADDRESS}/transactions/new", json=args
+    ) as resp:
+        if resp.status != 201:
+            raise web.HTTPBadRequest(reason="Could not register transaction.")
 
-
-@routes.post("/register_prediction")
-@has_deployment_authorization(f"psk {DEPLOYMENT_SERVER_PASS_KEY}")
-async def register_prediction(request: web.Request):
-    token = request.query.get("token")
-
-    if token is None:
-        raise web.HTTPBadRequest(reason="No token was passed.")
-
-    data = get_prediction(token)
-
-    if data is None:
-        raise web.HTTPBadRequest(
-            reason="Either the prediciton does not exist or the prediction has expired."
-        )
-
-    ...
+    return web.Response(body=orjson.dumps(args))
 
 
-app = web.Application(client_max_size=1024**2 * 100)
-app.add_routes(routes)
+def main():
+    app = web.Application(client_max_size=1024**2 * 100)
+    app.add_routes(routes)
+
+    return app
 
 
-web.run_app(app, host="0.0.0.0", port=8080)
+if __name__ == "__main__":
+    web.run_app(main(), host="0.0.0.0", port=8080)

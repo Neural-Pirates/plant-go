@@ -1,0 +1,8 @@
+gunicorn==21.2.0
+aiohttp==3.8.3
+numpy==1.26.0
+orjson==3.7.2
+torch==2.0.1
+torchvision==0.15.2
+timm==0.9.7
+opencv-python==4.8.1.78

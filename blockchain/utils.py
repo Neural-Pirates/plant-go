@@ -17,7 +17,7 @@ def valid_proof(last_proof, proof, last_hash):
 
 
 class Blockchain:
-    transaction_fields = ["client_id", "plant_id"]
+    transaction_fields = ["client_id", "plant_id", "caught_at", "caught_on"]
 
     def __init__(self):
         self.current_transactions = []

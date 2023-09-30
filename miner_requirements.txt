@@ -1,0 +1,2 @@
+aiohttp==3.8.3
+orjson==3.7.2

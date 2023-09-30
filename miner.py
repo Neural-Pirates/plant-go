@@ -1,5 +1,6 @@
 import enum
 import uuid
+from datetime import datetime
 
 import orjson
 from aiohttp import ClientSession, web
@@ -38,9 +39,10 @@ async def mine(request: web.Request):
     proof = await blockchain.async_proof_of_work(last_block)
 
     blockchain.new_transaction(
-        sender="0",
-        recipient=identifier,
-        amount=1,
+        plant_id="-1",
+        client_id=identifier,
+        caught_at=None,
+        caught_on=datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
 
     previous_hash = blockchain.hash(last_block)
@@ -116,3 +118,18 @@ async def consensus(request: web.Request):
         }
 
     return web.Response(body=orjson.dumps(response).decode(), status=200)
+
+
+def main():
+    app = web.Application()
+    app.add_routes(routes)
+
+    return app
+
+
+if __name__ == "__main__":
+    import os
+
+    MINER_PORT = int(os.environ.get("MINER_PORT", 9010))
+
+    web.run_app(main(), host="0.0.0.0", port=MINER_PORT)
