@@ -1,5 +1,6 @@
 import base64
 import datetime
+import logging
 import pathlib
 import sqlite3
 import sys
@@ -16,6 +17,10 @@ from server.constants import DEPLOYMENT_SERVER_PASS_KEY
 from server.ml_utils import load_model, resnet18
 
 cwd = pathlib.Path(__file__).parent.resolve()
+
+logging.basicConfig(
+    level=logging.DEBUG,
+)
 
 USER_ID = "james"
 
