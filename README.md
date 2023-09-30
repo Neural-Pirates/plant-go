@@ -2,6 +2,12 @@
     <img src="./img/logo.png">
 </p>
 
+
+## About
+
+**PlantGo**: Rediscover Nature, One Tap at a Time. Gamify outdoor exploration, snap plant pictures, identify with AI and earn blockchain rewards. We're not just a game – we're a green revolution!
+
+
 ## Installation
 
 Python 3.9 and higher are recommended for this project.
