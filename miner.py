@@ -1,4 +1,5 @@
 import enum
+import logging
 import uuid
 from datetime import datetime
 
@@ -6,6 +7,10 @@ import orjson
 from aiohttp import ClientSession, web
 
 from blockchain.utils import Blockchain
+
+logging.basicConfig(
+    level=logging.DEBUG,
+)
 
 identifier = uuid.uuid4().hex
 
@@ -42,7 +47,7 @@ async def mine(request: web.Request):
         plant_id="-1",
         client_id=identifier,
         caught_at=None,
-        caught_on=datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        caught_on=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
 
     previous_hash = blockchain.hash(last_block)
