@@ -32,3 +32,10 @@ A miner address is **crucial** for this project .
 $MINER_ADDRESS="..."
 py webserver.py $MINER_ADDRESS
 ```
+
+## The Team
+
+- [Swastik Aryal](https://github.com/Swastik-Aryal)
+- [KR](https://github.com/justfoolingaround)
+- [James Bhattarai](https://github.com/jamesii-b)
+- [Saksham Gyawali](https://github.com/SaksamGyawali)
