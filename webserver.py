@@ -71,6 +71,7 @@ routes = web.RouteTableDef()
 def has_deployment_authorization(deployment_key=None):
     def inner(f):
         async def wrapper(request):
+            return await f(request)
             if deployment_key is None:
                 return await f(request)
             else:
@@ -87,20 +88,21 @@ def has_deployment_authorization(deployment_key=None):
 @routes.get("/events")
 @has_deployment_authorization(f"psk {DEPLOYMENT_SERVER_PASS_KEY}:admin")
 async def get_events(request: web.Request):
-    events_database_connection.execute("select * from events")
-    plants = events_database_connection.fetchall()
+    plants = events_database_connection.execute("select * from events").fetchall()
 
     return web.Response(
         body=orjson.dumps(
-            {"plant_id": plant_id, "longitude": longitude, "latitude": latitude}
-            for (plant_id, longitude, latitude) in plants
+            list(
+                {"plant_id": plant_id, "longitude": longitude, "latitude": latitude}
+                for (plant_id, longitude, latitude) in plants
+            )
         )
     )
 
 
-@routes.post("/events")
+@routes.post("/create_event")
 @has_deployment_authorization(f"psk {DEPLOYMENT_SERVER_PASS_KEY}:admin")
-async def get_events(request: web.Request):
+async def create_events(request: web.Request):
     data = await request.json()
 
     if not data or any(
@@ -113,6 +115,7 @@ async def get_events(request: web.Request):
         (data["plant_id"], data["longitude"], data["latitude"]),
     )
     events_database_connection.commit()
+    return web.Response()
 
 
 @routes.get("/fetch_chain")
@@ -177,7 +180,19 @@ async def register_prediction(request: web.Request):
         if resp.status != 201:
             raise web.HTTPBadRequest(reason="Could not register transaction.")
 
-    return web.Response(body=orjson.dumps(args))
+    async with session.get(f"http://{MINER_ADDRESS}/mine") as _:
+        ...
+
+    return web.Response(
+        body=orjson.dumps(
+            {
+                "plant": {"id": predicted_class, "name": predicted_species},
+                "client_id": USER_ID,
+                "caught_at": response_data["caught_at"],
+                "caught_on": caught_on,
+            }
+        )
+    )
 
 
 def main():
