@@ -13,8 +13,8 @@
 Python 3.9 and higher are recommended for this project.
 
 ```
-pip install -R miner_requirements.txt
-pip install -R webserver_requirements.txt
+pip install -r miner_requirements.txt
+pip install -r webserver_requirements.txt
 ```
 
 ## Usage
