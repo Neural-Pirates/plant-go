@@ -6,6 +6,7 @@
 ## About
 
 **PlantGo**:  Rediscover Nature, One Tap at a Time. Gamify outdoor exploration, snap plant pictures with AI, earn blockchain rewards, and contribute to a vast plant database. Join the green revolution!
+For mre information visit our [Devpost Project Profile](https://devpost.com/software/plant-go).
 
 
 ## Installation
